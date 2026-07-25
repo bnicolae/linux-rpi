@@ -330,6 +330,10 @@ struct rte_console {
 #define MAX_KSO_ATTEMPTS (PMU_MAX_TRANSITION_DLY/KSO_WAIT_US)
 #define BRCMF_SDIO_MAX_ACCESS_ERRORS	20
 
+static int idle_jiffies = BRCMF_IDLE_INTERVAL;
+module_param(idle_jiffies, int, 0644);
+MODULE_PARM_DESC(idle_jiffies, "Set idle time in jiffies before SDIO bus goes to sleep (default: 1)");
+
 static void brcmf_sdio_firmware_callback(struct device *dev, int err,
 					 struct brcmf_fw_request *fwreq);
 static struct brcmf_fw_request *
@@ -4742,7 +4746,7 @@ int brcmf_sdio_probe(struct brcmf_sdio_dev *sdiodev)
 
 	/* ...and initialize clock/power states */
 	bus->clkstate = CLK_SDONLY;
-	bus->idletime = BRCMF_IDLE_INTERVAL;
+	bus->idletime = idle_jiffies;
 	bus->idleclock = BRCMF_IDLE_ACTIVE;
 
 	/* SR state */
