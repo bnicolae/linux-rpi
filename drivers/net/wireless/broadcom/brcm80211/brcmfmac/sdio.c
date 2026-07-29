@@ -1116,8 +1116,57 @@ static void brcmf_sdio_get_console_addr(struct brcmf_sdio *bus)
 	if (brcmf_sdio_readshared(bus, &sh) == 0)
 		bus->console_addr = sh.console_addr;
 }
+
+/* Read and log the firmware trap record (PC/registers). Used when the firmware
+ * signals a halt so the crash location is visible in dmesg.
+ */
+static void brcmf_sdio_dump_trap(struct brcmf_sdio *bus)
+{
+	struct sdpcm_shared sh;
+	struct brcmf_trap_info tr;
+	int err;
+
+	if (brcmf_sdio_readshared(bus, &sh) < 0) {
+		brcmf_err("dump_trap: cannot read sdpcm_shared\n");
+		return;
+	}
+
+	brcmf_err("dump_trap: sh.flags=0x%x trap_addr=0x%x\n",
+		  sh.flags, sh.trap_addr);
+
+	if (!(sh.flags & SDPCM_SHARED_TRAP))
+		return;
+
+	sdio_claim_host(bus->sdiodev->func1);
+	err = brcmf_sdiod_ramrw(bus->sdiodev, false, sh.trap_addr, (u8 *)&tr,
+				sizeof(tr));
+	sdio_release_host(bus->sdiodev->func1);
+	if (err < 0) {
+		brcmf_err("dump_trap: cannot read trap info err=%d\n", err);
+		return;
+	}
+
+	brcmf_err("firmware trap: type 0x%x epc 0x%08x cpsr 0x%08x spsr 0x%08x\n"
+		  "  pc 0x%08x lr 0x%08x sp 0x%08x ip 0x%08x fp 0x%08x\n"
+		  "  r0 0x%08x r1 0x%08x r2 0x%08x r3 0x%08x\n"
+		  "  r4 0x%08x r5 0x%08x r6 0x%08x r7 0x%08x\n"
+		  "  r8 0x%08x r9 0x%08x r10 0x%08x\n",
+		  le32_to_cpu(tr.type), le32_to_cpu(tr.epc),
+		  le32_to_cpu(tr.cpsr), le32_to_cpu(tr.spsr),
+		  le32_to_cpu(tr.pc), le32_to_cpu(tr.r14), le32_to_cpu(tr.r13),
+		  le32_to_cpu(tr.r12), le32_to_cpu(tr.r11),
+		  le32_to_cpu(tr.r0), le32_to_cpu(tr.r1),
+		  le32_to_cpu(tr.r2), le32_to_cpu(tr.r3),
+		  le32_to_cpu(tr.r4), le32_to_cpu(tr.r5),
+		  le32_to_cpu(tr.r6), le32_to_cpu(tr.r7),
+		  le32_to_cpu(tr.r8), le32_to_cpu(tr.r9),
+		  le32_to_cpu(tr.r10));
+}
 #else
 static void brcmf_sdio_get_console_addr(struct brcmf_sdio *bus)
+{
+}
+static void brcmf_sdio_dump_trap(struct brcmf_sdio *bus)
 {
 }
 #endif /* DEBUG */
@@ -1146,7 +1195,8 @@ static u32 brcmf_sdio_hostmail(struct brcmf_sdio *bus, u32 *hmbd)
 
 	/* dongle indicates the firmware has halted/crashed */
 	if (hmb_data & HMB_DATA_FWHALT) {
-		brcmf_dbg(SDIO, "mailbox indicates firmware halted\n");
+		brcmf_err("mailbox indicates firmware halted\n");
+		brcmf_sdio_dump_trap(bus);
 		brcmf_fw_crashed(&sdiod->func1->dev);
 	}
 
